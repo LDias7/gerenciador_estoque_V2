@@ -1,13 +1,17 @@
 // =========================================================================
-// CONFIGURAÇÃO DA API E HEADERS PARA SHAREPOINT (Final)
+// CONFIGURAÇÃO DA API E HEADERS PARA SHAREPOINT (FINAL)
 // =========================================================================
 
-// Usamos a URL REST interna, e a autenticação será injetada nas funções
+// O URL ABSOLUTO do seu Site SharePoint - Corrigido para conexão direta!
+const SHAREPOINT_SITE_ROOT = 'https://borexpress.sharepoint.com/sites/EstoqueJC';
 const API_BASE_URL_START = "/_api/web/lists/GetByTitle"; 
 
+// A URL de chamada será montada com o link absoluto
+const API_BASE_URL = `${SHAREPOINT_SITE_ROOT}${API_BASE_URL_START}`;
+
+
 /**
- * Obtém os Headers de segurança do SharePoint. Isso só funciona
- * quando o DOM (a página) está carregado, onde a tag __REQUESTDIGEST existe.
+ * Obtém os Headers de segurança do SharePoint.
  */
 function getSharePointHeaders(method) {
     const headers = {
@@ -15,10 +19,12 @@ function getSharePointHeaders(method) {
         "Content-Type": "application/json;odata=verbose",
     };
 
-    // Adiciona o token de digest apenas para escrita (POST)
+    // Adiciona o token de digest (X-RequestDigest) para escrita (POST)
     if (method !== 'GET') {
         const digest = document.getElementById('__REQUESTDIGEST');
         if (!digest || !digest.value) {
+             // Se o IFrame não injetar o token, o fetch vai falhar,
+             // mas isso é o último recurso de segurança do SharePoint.
              throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) não encontrado. A página não carregou completamente.");
         }
         headers["X-RequestDigest"] = digest.value;
@@ -30,10 +36,10 @@ function getSharePointHeaders(method) {
  * Função utilitária para fazer requisições à API REST do SharePoint.
  */
 async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null) {
-    // A URL absoluta é construída automaticamente pelo fetch, chamando a URL do site.
-    const url = `${_spPageContextInfo.webAbsoluteUrl}${API_BASE_URL_START}('${listTitle}')${endpoint}`;
+    // A URL completa agora usa a raiz absoluta
+    const url = `${API_BASE_URL}('${listTitle}')${endpoint}`;
     
-    // Obtém os headers APENAS quando a função é chamada (e o DOM está pronto)
+    // Obtém os headers (incluindo o token de segurança para POST)
     const headers = getSharePointHeaders(method);
 
     const config = {
@@ -42,6 +48,7 @@ async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null)
         body: data ? JSON.stringify(data) : null
     };
 
+    // TENTA A CONEXÃO
     const response = await fetch(url, config);
     
     if (response.status === 404) return null;
@@ -53,7 +60,7 @@ async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null)
 
 
 // =========================================================================
-// FUNÇÕES DE UTILIDADE GERAL (O restante do código que não usa API é mantido)
+// O RESTANTE DO CÓDIGO (FUNÇÕES E LISTENERS) SEGUE ABAIXO
 // =========================================================================
 
 /**
@@ -78,7 +85,7 @@ function navegarPara(telaAtualId, proximaTelaId) {
     }
 }
 
-// ... (Resto das Funções de Busca, Saldo, etc.) ...
+// ... (Copie todas as funções de busca, cálculo e o DOMContentLoaded) ...
 async function buscarProdutoAPI(params) {
     let filter = '';
     
@@ -230,7 +237,6 @@ async function carregarHistoricoSaidas() {
 
         historico.results.forEach(registro => {
             const tr = document.createElement('tr');
-            // 'Created' é o campo de data padrão do SharePoint
             const dataFormatada = new Date(registro.Created).toLocaleDateString('pt-BR'); 
             
             tr.innerHTML = `
@@ -470,5 +476,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('saldoDescricao').addEventListener('input', () => {
         processarFiltroSaldo('descricao');
     });
+
 
 });

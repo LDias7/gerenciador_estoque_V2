@@ -1,29 +1,34 @@
 // =========================================================================
-// CONFIGURAÇÃO DA API E SHAREPOINT (FINAL - Proxy de Mensagens)
+// CONFIGURAÇÃO DA API E SHAREPOINT (FINAL E ATUALIZADO)
 // =========================================================================
 
 const SHAREPOINT_SITE_ROOT = 'https://borexpress.sharepoint.com/sites/EstoqueJC';
 const API_BASE_URL_START = "/_api/web/lists/GetByTitle";
 const API_BASE_URL = `${SHAREPOINT_SITE_ROOT}${API_BASE_URL_START}`;
 
-// VARIÁVEL PARA RASTREAR REQUISIÇÕES E ESPERAR POR RESPOSTAS DO SHAREPOINT
-let apiResolver = {};
-let apiCounter = 0;
 
+// =========================================================================
+// FUNÇÕES DE SEGURANÇA E API (AGORA ISOLADAS PARA EVITAR O CRASH)
+// =========================================================================
 
 /**
- * Obtém o token de segurança do SharePoint (Request Digest)
- * Tenta obter o token do IFrame ou do documento pai (SharePoint)
+ * Obtém o token de segurança do SharePoint (Request Digest).
+ * Esta função só é chamada na hora de salvar.
  */
 function getSharePointDigest() {
     try {
         let digest;
         
-        // Tenta ler o token do campo oculto (que será preenchido pelo script injetado)
-        digest = document.getElementById('sp-digest-token')?.value;
+        // 1. Tenta ler o token da própria página (IFrame)
+        digest = document.getElementById('__REQUESTDIGEST')?.value;
+        if (!digest && window.parent && window.parent.document) {
+            // 2. Tenta acessar o documento pai (SharePoint)
+            digest = window.parent.document.getElementById('__REQUESTDIGEST')?.value;
+        }
+
         if (digest) return digest;
 
-        // Se falhar na leitura, lança um erro específico para o usuário
+        // Lança o erro apenas se o token for necessário e não for encontrado
         throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente.");
     } catch (err) {
         throw new Error(err.message);
@@ -31,90 +36,61 @@ function getSharePointDigest() {
 }
 
 /**
- * Gera headers para chamadas REST do SharePoint.
+ * Função utilitária para chamar a API REST do SharePoint.
  */
-function getSharePointHeaders(method) {
+async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null) {
+    const url = `${API_BASE_URL}('${listTitle}')${endpoint}`;
+    
     const headers = {
         "Accept": "application/json;odata=verbose",
         "Content-Type": "application/json;odata=verbose",
     };
 
+    // AQUI O CÓDIGO CRÍTICO SÓ É EXECUTADO SE NÃO FOR GET (Escrita)
     if (method !== 'GET') {
-        headers["X-RequestDigest"] = getSharePointDigest();
+        headers["X-RequestDigest"] = getSharePointDigest(); // AQUI É ONDE O ERRO É LANÇADO
     }
-    return headers;
-}
-
-/**
- * Função utilitária para fazer requisições VIA PROXY (postMessage).
- */
-async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null) {
-    const headers = getSharePointHeaders(method);
-
+    
     // Verifica se o token está ausente em operações de escrita (POST)
     if (method !== 'GET' && !headers["X-RequestDigest"]) {
-        // Lança o erro de forma clara para o usuário
         throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente. A operação de escrita não pode ser concluída.");
     }
-    
-    // 1. OBTEM A RESPOSTA VIA PROXY (para contornar o bloqueio de CORS)
-    const id = apiCounter++;
-    
-    // Cria uma promessa que será resolvida quando o SharePoint responder
-    const promise = new Promise((resolve, reject) => {
-        apiResolver[id] = { resolve, reject };
-    });
-    
-    // 2. Envia a requisição para o SharePoint (Pai)
-    window.parent.postMessage({
-        id: id,
-        type: 'SHAREPOINT_API_CALL',
-        payload: {
-            listTitle: listTitle,
-            endpoint: endpoint,
-            method: method,
-            data: data
-        }
-    }, '*'); // Envia para o documento pai
 
-    return promise; // Espera pela resposta do SharePoint
+    const config = {
+        method: method,
+        headers: headers,
+        body: data ? JSON.stringify(data) : null,
+        credentials: "include"
+    };
+
+    const response = await fetch(url, config);
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Erro na resposta do SharePoint:", errorText);
+        throw new Error(`SharePoint API Error: ${response.status} - ${response.statusText}. Verifique Colunas/Permissões.`);
+    }
+
+    const json = await response.json();
+    return json.d;
 }
 
-/**
- * Escuta respostas vindas do SharePoint.
- * O SharePoint Pai (o proxy) envia uma mensagem de volta com o resultado da API.
- */
-window.addEventListener('message', (event) => {
-    // 🔒 1. Verificação de Segurança (Origem)
-    if (!event.origin.includes('sharepoint.com') || !event.data.type || !event.data.id) return;
-    
-    const data = event.data;
-    
-    // 2. Resolve a Promessa que está esperando por este ID
-    if (apiResolver[data.id]) {
-        if (data.type === 'API_SUCCESS') {
-            apiResolver[data.id].resolve(data.payload);
-        } else if (data.type === 'API_ERROR') {
-            apiResolver[data.id].reject(new Error(data.payload.message || "Erro desconhecido na API do SharePoint."));
-        }
-        delete apiResolver[data.id]; // Limpa o resolvedor
-    }
-    
-    // 3. Verifica se o script pai está enviando o token para ser armazenado (o nosso script injetado)
-    if (data.type === 'RESPONSE_DIGEST' && data.digestValue) {
-        document.getElementById('sp-digest-token').value = data.digestValue;
-        console.log("API Pronto: Token recebido do SharePoint.");
-    }
-});
-
-
 // =========================================================================
-// ROTINAS DE NEGÓCIO (Aqui usamos os Nomes Estáticos Corretos)
+// FUNÇÕES DE UTILIDADE E ROTEAMENTO (PRIORIDADE MÁXIMA)
 // =========================================================================
 
+function navegarPara(telaAtualId, proximaTelaId) {
+    document.querySelectorAll('.screen').forEach(tela => tela.classList.remove('active'));
+    const proximaTela = document.getElementById(proximaTelaId);
+    if (proximaTela) {
+        proximaTela.classList.add('active');
+    }
+}
+
+// Rotinas de Consulta à API (Adaptadas para usar 'sharepointFetch' e os nomes estáticos)
 async function buscarProdutoAPI(params) {
     let filter = '';
-    
     if (params.codigoFornecedor) {
         filter = `?$filter=CodigoFornecedor eq '${params.codigoFornecedor}'`;
     } else if (params.codigoFabrica) {
@@ -122,10 +98,8 @@ async function buscarProdutoAPI(params) {
     } else if (params.descricao) {
         filter = `?$filter=substringof('${params.descricao}', DescricaoProduto)`;
     }
-    
     try {
         const data = await sharepointFetch('Produtos', `/items${filter}&$top=1`, 'GET');
-        
         if (data && data.results && data.results.length > 0) {
             const spItem = data.results[0];
             return {
@@ -139,9 +113,8 @@ async function buscarProdutoAPI(params) {
         }
         return null;
     } catch (error) {
-        // Ignora erros de leitura de token, pois GET não precisa do token.
-        console.error('Aviso: Falha ao buscar item (Leitura). O erro pode ser de token ou de API. Tente o cadastro.', error);
-        return null; 
+        console.error('Erro ao buscar produto no SharePoint:', error);
+        return null;
     }
 }
 
@@ -194,7 +167,6 @@ async function carregarHistoricoSaidas() {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: red;">Erro ao carregar dados do SharePoint.</td></tr>';
     }
 }
-
 
 // Funções de Utilitário e Tela
 function calcularValorTotal() {
@@ -382,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-historico-saida').addEventListener('click', () => { navegarPara('tela-saida', 'tela-historico-saida'); });
     document.getElementById('btn-voltar-historico').addEventListener('click', () => { navegarPara('tela-historico-saida', 'tela-saida'); });
 
-    // ATENÇÃO: A lógica de busca automática de Entrada e Saída (keyup no ENTER)
+    // Lógica de busca automática
     document.getElementById('entradaCodigoFornecedor').addEventListener('keyup', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault(); 

@@ -1,5 +1,5 @@
 // =========================================================================
-// CONFIGURAÇÃO DA API E SHAREPOINT (FINAL)
+// CONFIGURAÇÃO DA API E SHAREPOINT (FINAL E ATUALIZADO)
 // =========================================================================
 
 const SHAREPOINT_SITE_ROOT = 'https://borexpress.sharepoint.com/sites/EstoqueJC';
@@ -7,9 +7,12 @@ const API_BASE_URL_START = "/_api/web/lists/GetByTitle";
 const API_BASE_URL = `${SHAREPOINT_SITE_ROOT}${API_BASE_URL_START}`;
 
 
+// =========================================================================
+// FUNÇÕES DE SEGURANÇA E API (Onde a escrita falha - CÓDIGO CRÍTICO)
+// =========================================================================
+
 /**
  * Obtém o token de segurança do SharePoint (Request Digest)
- * Retorna o token ou lança um erro que será capturado na rotina de escrita.
  */
 function getSharePointDigest() {
     try {
@@ -17,19 +20,20 @@ function getSharePointDigest() {
         
         // 1. Tenta obter o token da própria página (IFrame)
         digest = document.getElementById('__REQUESTDIGEST')?.value;
-        if (digest) return digest;
-
-        // 2. Tenta acessar o documento pai (SharePoint), se permitido
-        if (window.parent && window.parent.document) {
-            digest = window.parent.document.getElementById('__REQUESTDIGEST')?.value;
-            if (digest) return digest;
+        if (!digest) {
+             // 2. Tenta acessar o documento pai (SharePoint)
+            if (window.parent && window.parent.document) {
+                digest = window.parent.document.getElementById('__REQUESTDIGEST')?.value;
+            }
         }
 
-        // Se falhar na leitura, lança um erro específico (para ser pego no catch do formulário)
-        throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente.");
-    } catch (err) {
-        // Lança um erro claro para o usuário saber que é um problema de segurança
+        if (digest) return digest;
+
+        // Se falhar, lança um erro que será pego no catch do submit
         throw new Error("Falha de segurança: Token (__REQUESTDIGEST) ausente.");
+    } catch (err) {
+        // Lança um erro claro para o formulário
+        throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente.");
     }
 }
 
@@ -53,9 +57,13 @@ function getSharePointHeaders(method) {
  */
 async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null) {
     const url = `${API_BASE_URL}('${listTitle}')${endpoint}`;
-    
-    // OBTEM OS HEADERS (que irá verificar o token para POST)
     const headers = getSharePointHeaders(method);
+
+    // Verifica se o token está ausente em operações de escrita (POST)
+    if (method !== 'GET' && !headers["X-RequestDigest"]) {
+        // Lança o erro de forma clara para o usuário
+        throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente. A operação de escrita não pode ser concluída.");
+    }
 
     const config = {
         method: method,
@@ -78,29 +86,33 @@ async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null)
 }
 
 // =========================================================================
-// ROTINAS DE NEGÓCIO (Aqui usamos os Nomes Estáticos Corretos)
+// ROTINAS DE NEGÓCIO E UTILIDADE (USANDO NOMES ESTÁTICOS CORRETOS)
 // =========================================================================
 
+function navegarPara(telaAtualId, proximaTelaId) {
+    document.querySelectorAll('.screen').forEach(tela => tela.classList.remove('active'));
+    const proximaTela = document.getElementById(proximaTelaId);
+    if (proximaTela) {
+        proximaTela.classList.add('active');
+        // Ações de carregamento de dados (se for Saldo ou Histórico)
+    }
+}
+
+// Rotinas de Consulta à API (Adaptadas para usar 'sharepointFetch' e os nomes estáticos)
 async function buscarProdutoAPI(params) {
     let filter = '';
-    
     if (params.codigoFornecedor) {
         filter = `?$filter=CodigoFornecedor eq '${params.codigoFornecedor}'`;
     } else if (params.codigoFabrica) {
         filter = `?$filter=Title eq '${params.codigoFabrica}'`; 
     } else if (params.descricao) {
         filter = `?$filter=substringof('${params.descricao}', DescricaoProduto)`;
-    } else {
-        return null;
     }
-
     try {
         const data = await sharepointFetch('Produtos', `/items${filter}&$top=1`, 'GET');
-        
         if (data && data.results && data.results.length > 0) {
             const spItem = data.results[0];
             return {
-                // USANDO OS NOMES ESTÁTICOS CORRETOS
                 codigoFabrica: spItem.Title,
                 codigoFornecedor: spItem.CodigoFornecedor,
                 descricaoProduto: spItem.DescricaoProduto,
@@ -118,7 +130,6 @@ async function buscarProdutoAPI(params) {
 
 async function obterSaldoAPI(codigoFabrica) {
     try {
-        // As listas Entradas e Saídas usam Title para o Cód. Fábrica
         const filter = `?$filter=Title eq '${codigoFabrica}'`;
         const entradasData = await sharepointFetch('Entradas', `/items${filter}`, 'GET');
         const totalEntradas = entradasData.results.reduce((sum, item) => sum + (item.Quantidade || 0), 0);
@@ -138,7 +149,6 @@ async function carregarHistoricoSaidas() {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Carregando histórico...</td></tr>';
 
     try {
-        // Note: Title é o Cód. Fábrica, e Created é a data
         const historico = await sharepointFetch('Saidas', `/items?$select=Title,DescricaoProduto,Quantidade,PlacaCaminhao,Destinatario,Created`, 'GET');
         tbody.innerHTML = ''; 
 
@@ -168,7 +178,7 @@ async function carregarHistoricoSaidas() {
     }
 }
 
-
+// Funções de Utilitário e Tela
 function calcularValorTotal() {
     const quantidade = parseFloat(document.getElementById('entradaQuantidade').value) || 0;
     const valorUnitario = parseFloat(document.getElementById('entradaValorUnitario').value) || 0;
@@ -248,6 +258,75 @@ async function processarFiltroSaldo(campoAlterado) {
     }
 }
 
+async function processarBuscaEntrada() {
+    const inputEntradaCodFornecedor = document.getElementById('entradaCodigoFornecedor');
+    const displayDados = document.getElementById('entrada-dados-produto');
+    const newFields = document.getElementById('entrada-new-fields');
+    const btnSalvar = document.getElementById('btn-salvar-entrada');
+
+    const codigoBuscado = inputEntradaCodFornecedor.value.trim().toUpperCase();
+    
+    if (!codigoBuscado) return;
+
+    const produto = await buscarProdutoAPI({ codigoFornecedor: codigoBuscado });
+    
+    if (produto) {
+        document.getElementById('displayDescricao').textContent = produto.descricaoProduto;
+        document.getElementById('displayCodFabrica').textContent = produto.codigoFabrica;
+        document.getElementById('displayFornecedor').textContent = produto.nomeFornecedor;
+        document.getElementById('displayUnidade').textContent = produto.unidadeMedida;
+        
+        displayDados.style.display = 'block';
+        newFields.style.display = 'block';
+        document.getElementById('entradaQuantidade').focus();
+    } else {
+        alert(`Produto com Código do Fornecedor "${codigoBuscado}" não encontrado no cadastro.`);
+        displayDados.style.display = 'none';
+        newFields.style.display = 'none';
+        btnSalvar.disabled = true;
+    }
+}
+
+async function carregarDadosSaida() {
+    const inputSaidaCodFabrica = document.getElementById('saidaCodigoFabrica');
+    const displayDados = document.getElementById('saida-dados-produto');
+    const newFields = document.getElementById('saida-new-fields');
+    const btnSalvar = document.getElementById('btn-salvar-saida');
+
+    const codigoBuscado = inputSaidaCodFabrica.value.trim().toUpperCase();
+    
+    if (!codigoBuscado) return;
+
+    const produto = await buscarProdutoAPI({ codigoFabrica: codigoBuscado });
+
+    if (produto) {
+        const saldoAtual = await obterSaldoAPI(produto.codigoFabrica); 
+
+        document.getElementById('saidaDisplayDescricao').textContent = produto.descricaoProduto;
+        document.getElementById('saidaDisplayCodFornecedor').textContent = produto.codigoFornecedor;
+        document.getElementById('saidaDisplayEstoque').textContent = saldoAtual;
+        document.getElementById('saidaDisplayData').textContent = new Date().toLocaleDateString('pt-BR');
+        
+        const estoqueElement = document.getElementById('saidaDisplayEstoque');
+        if (saldoAtual <= 5) {
+            estoqueElement.classList.add('baixo');
+        } else {
+            estoqueElement.classList.remove('baixo');
+        }
+
+        displayDados.style.display = 'block';
+        newFields.style.display = 'block';
+        document.getElementById('saidaQuantidade').focus();
+        btnSalvar.disabled = false; 
+
+    } else {
+        alert(`Produto com Código de Fábrica "${codigoBuscado}" não encontrado no cadastro.`);
+        displayDados.style.display = 'none';
+        newFields.style.display = 'none';
+        btnSalvar.disabled = true;
+    }
+}
+
 
 // =========================================================================
 // EVENT LISTENERS (Ao carregar a página)
@@ -285,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-historico-saida').addEventListener('click', () => { navegarPara('tela-saida', 'tela-historico-saida'); });
     document.getElementById('btn-voltar-historico').addEventListener('click', () => { navegarPara('tela-historico-saida', 'tela-saida'); });
 
-    // ATENÇÃO: A lógica de busca automática de Entrada e Saída (keyup no ENTER) deve ser recolocada aqui
+    // ATENÇÃO: A lógica de busca automática de Entrada e Saída (keyup no ENTER)
     document.getElementById('entradaCodigoFornecedor').addEventListener('keyup', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault(); 

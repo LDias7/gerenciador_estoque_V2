@@ -203,8 +203,65 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script>
+    // URL do seu site, para construir as URLs de API
+    const SHAREPOINT_SITE_ROOT = 'https://borexpress.sharepoint.com/sites/EstoqueJC';
+
+    window.addEventListener('message', async (event) => {
+        // 🔒 1. Verificação de Segurança: Garante que a mensagem venha do seu Vercel
+        if (!event.origin.includes('gerenciador-estoque-v2.vercel.app')) return;
+
+        const data = event.data;
+        if (data.type !== 'SHAREPOINT_API_CALL') return;
+
+        const { id, payload } = data;
+        let responsePayload = {};
+        
+        try {
+            // 2. Obtém o Token de Segurança (Esta parte requer a permissão do SharePoint)
+            const digestResponse = await fetch(`${SHAREPOINT_SITE_ROOT}/_api/contextinfo`, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json;odata=verbose' }
+            });
+
+            const digestData = await digestResponse.json();
+            const digest = digestData.d.GetContextWebInformation.FormDigestValue;
+            
+            // 3. Monta a Chamada da API
+            const apiURL = `${SHAREPOINT_SITE_ROOT}/_api/web/lists/GetByTitle('${payload.listTitle}')${payload.endpoint}`;
+
+            const headers = {
+                'Accept': 'application/json;odata=verbose',
+                'Content-Type': 'application/json;odata=verbose',
+                'X-RequestDigest': digest
+            };
+
+            // 4. Faz a Requisição REAL para a Lista
+            const response = await fetch(apiURL, {
+                method: payload.method,
+                headers: headers,
+                body: payload.data ? JSON.stringify(payload.data) : null
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(errText);
+            }
+
+            const result = await response.json();
+            responsePayload = { type: 'API_SUCCESS', id: id, payload: result.d };
+
+        } catch (err) {
+            console.error('❌ Erro de Proxy/API:', err);
+            responsePayload = { type: 'API_ERROR', id: id, payload: { message: err.message } };
+        }
+        
+        // 5. Envia a Resposta de Volta para o IFrame do Vercel
+        event.source.postMessage(responsePayload, event.origin);
+    });
+</script>
 </body>
 
 </html>
+
 

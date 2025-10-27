@@ -1,5 +1,5 @@
 // =========================================================================
-// CONFIGURAÇÃO DA API E SHAREPOINT (FINAL E ATUALIZADO)
+// CONFIGURAÇÃO DA API E SHAREPOINT (FINAL - CORREÇÃO DE SEGURANÇA)
 // =========================================================================
 
 const SHAREPOINT_SITE_ROOT = 'https://borexpress.sharepoint.com/sites/EstoqueJC';
@@ -8,31 +8,41 @@ const API_BASE_URL = `${SHAREPOINT_SITE_ROOT}${API_BASE_URL_START}`;
 
 
 // =========================================================================
-// FUNÇÕES DE SEGURANÇA E API (AGORA ISOLADAS PARA EVITAR O CRASH)
+// FUNÇÕES DE SEGURANÇA E API (AGORA FOCADAS APENAS NO IFrame)
 // =========================================================================
 
 /**
- * Obtém o token de segurança do SharePoint (Request Digest).
- * Esta função só é chamada na hora de salvar.
+ * Obtém o token de segurança do SharePoint (Request Digest)
+ * Tenta ler APENAS o elemento do IFrame, eliminando o erro de bloqueio cross-origin.
  */
 function getSharePointDigest() {
     try {
-        let digest;
+        // Tenta ler o token APENAS no IFrame (única tentativa)
+        const digest = document.getElementById('__REQUESTDIGEST')?.value;
         
-        // 1. Tenta ler o token da própria página (IFrame)
-        digest = document.getElementById('__REQUESTDIGEST')?.value;
-        if (!digest && window.parent && window.parent.document) {
-            // 2. Tenta acessar o documento pai (SharePoint)
-            digest = window.parent.document.getElementById('__REQUESTDIGEST')?.value;
+        if (!digest) {
+            // Se falhar na leitura, lança um erro para o usuário.
+            throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente.");
         }
-
-        if (digest) return digest;
-
-        // Lança o erro apenas se o token for necessário e não for encontrado
-        throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente.");
+        return digest;
     } catch (err) {
-        throw new Error(err.message);
+        throw new Error("Falha de segurança: Token (__REQUESTDIGEST) ausente.");
     }
+}
+
+/**
+ * Gera headers para chamadas REST do SharePoint.
+ */
+function getSharePointHeaders(method) {
+    const headers = {
+        "Accept": "application/json;odata=verbose",
+        "Content-Type": "application/json;odata=verbose",
+    };
+
+    if (method !== 'GET') {
+        headers["X-RequestDigest"] = getSharePointDigest();
+    }
+    return headers;
 }
 
 /**
@@ -40,17 +50,8 @@ function getSharePointDigest() {
  */
 async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null) {
     const url = `${API_BASE_URL}('${listTitle}')${endpoint}`;
-    
-    const headers = {
-        "Accept": "application/json;odata=verbose",
-        "Content-Type": "application/json;odata=verbose",
-    };
+    const headers = getSharePointHeaders(method);
 
-    // AQUI O CÓDIGO CRÍTICO SÓ É EXECUTADO SE NÃO FOR GET (Escrita)
-    if (method !== 'GET') {
-        headers["X-RequestDigest"] = getSharePointDigest(); // AQUI É ONDE O ERRO É LANÇADO
-    }
-    
     // Verifica se o token está ausente em operações de escrita (POST)
     if (method !== 'GET' && !headers["X-RequestDigest"]) {
         throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente. A operação de escrita não pode ser concluída.");
@@ -77,7 +78,7 @@ async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null)
 }
 
 // =========================================================================
-// FUNÇÕES DE UTILIDADE E ROTEAMENTO (PRIORIDADE MÁXIMA)
+// ROTINAS DE NEGÓCIO E UTILIDADE
 // =========================================================================
 
 function navegarPara(telaAtualId, proximaTelaId) {
@@ -306,7 +307,6 @@ async function carregarDadosSaida() {
 
         displayDados.style.display = 'block';
         newFields.style.display = 'block';
-        document.getElementById('saidaQuantidade').focus();
         btnSalvar.disabled = false; 
 
     } else {
@@ -354,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-historico-saida').addEventListener('click', () => { navegarPara('tela-saida', 'tela-historico-saida'); });
     document.getElementById('btn-voltar-historico').addEventListener('click', () => { navegarPara('tela-historico-saida', 'tela-saida'); });
 
-    // Lógica de busca automática
+    // ATENÇÃO: A lógica de busca automática de Entrada e Saída (keyup no ENTER)
     document.getElementById('entradaCodigoFornecedor').addEventListener('keyup', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault(); 

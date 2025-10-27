@@ -1,16 +1,25 @@
 // =========================================================================
-// CONFIGURAÇÃO DO SHAREPOINT
+// CONFIGURAÇÃO DA API (Corrigida para evitar o crash)
 // =========================================================================
 
-// Variáveis essenciais para a API REST do SharePoint
-const API_BASE_URL = _spPageContextInfo.webAbsoluteUrl + "/_api/web/lists/GetByTitle";
+// Verifica se está no SharePoint. Se não, assume que é o link da URL atual.
+const API_BASE_URL_SHAREPOINT = typeof _spPageContextInfo !== 'undefined' ? 
+    _spPageContextInfo.webAbsoluteUrl + "/_api/web/lists/GetByTitle" : 
+    "/"; // Usa apenas a raiz para evitar o crash fora do SharePoint.
+
+// Usamos uma URL base simples para o caso de teste.
+const API_BASE_URL = API_BASE_URL_SHAREPOINT; 
+
 
 // Headers necessários para autenticação e formato de dados
 const SHAREPOINT_HEADERS = {
     "Accept": "application/json;odata=verbose",
     "Content-Type": "application/json;odata=verbose",
-    "X-RequestDigest": document.getElementById('__REQUESTDIGEST').value
+    // Esta linha será preenchida corretamente APENAS no SharePoint
+    "X-RequestDigest": typeof document !== 'undefined' && document.getElementById('__REQUESTDIGEST') ? document.getElementById('__REQUESTDIGEST').value : 'DUMMY_DIGEST' 
 };
+
+// ... O restante do código segue igual, mas eu o incluí para garantir a integridade.
 
 /**
  * Função utilitária para fazer requisições à API REST do SharePoint.
@@ -249,3 +258,4 @@ document.getElementById('form-saida').addEventListener('submit', async (e) => {
 });
 
 // ... (O restante da lógica de evento e do DOMContentLoaded deve ser copiado aqui) ...
+

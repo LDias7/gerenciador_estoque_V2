@@ -2,89 +2,85 @@
 // CONFIGURAÇÃO DA API E SHAREPOINT (FINAL)
 // =========================================================================
 
-// URL ABSOLUTO do Site SharePoint para referências internas de link.
 const SHAREPOINT_SITE_ROOT = 'https://borexpress.sharepoint.com/sites/EstoqueJC';
+const API_BASE_URL_START = "/_api/web/lists/GetByTitle";
+const API_BASE_URL = `${SHAREPOINT_SITE_ROOT}${API_BASE_URL_START}`;
 
-// O APP AGORA SE COMUNICA APENAS COM A JANELA PAI (Proxy de Mensagens)
-const API_BASE_URL_REST = `${SHAREPOINT_SITE_ROOT}/_api/web/lists/GetByTitle`;
-
-
-// VARIÁVEL PARA RASTREAR REQUISIÇÕES E ESPERAR POR RESPOSTAS DO SHAREPOINT
-let apiResolver = {};
-let apiCounter = 0;
 
 /**
- * Escuta respostas vindas do SharePoint.
- * O SharePoint Pai (o proxy) envia uma mensagem de volta com o resultado da API.
+ * Obtém o token de segurança do SharePoint (Request Digest)
+ * Retorna o token ou lança um erro que será capturado na rotina de escrita.
  */
-window.addEventListener('message', (event) => {
-    // 🔒 1. Verificação de Segurança
-    // A URL de origem deve incluir o domínio do SharePoint para ser aceita como resposta
-    if (!event.origin.includes('sharepoint.com') || !event.data.type || !event.data.id) return;
-    
-    const data = event.data;
-    
-    // 2. Resolve a Promessa que está esperando por este ID
-    if (apiResolver[data.id]) {
-        if (data.type === 'API_SUCCESS') {
-            apiResolver[data.id].resolve(data.payload);
-        } else if (data.type === 'API_ERROR') {
-            apiResolver[data.id].reject(new Error(data.payload.message || "Erro desconhecido na API do SharePoint."));
-        }
-        delete apiResolver[data.id]; // Limpa o resolvedor
-    }
-});
+function getSharePointDigest() {
+    try {
+        let digest;
+        
+        // 1. Tenta obter o token da própria página (IFrame)
+        digest = document.getElementById('__REQUESTDIGEST')?.value;
+        if (digest) return digest;
 
+        // 2. Tenta acessar o documento pai (SharePoint), se permitido
+        if (window.parent && window.parent.document) {
+            digest = window.parent.document.getElementById('__REQUESTDIGEST')?.value;
+            if (digest) return digest;
+        }
+
+        // Se falhar na leitura, lança um erro específico (para ser pego no catch do formulário)
+        throw new Error("Token de segurança do SharePoint (__REQUESTDIGEST) ausente.");
+    } catch (err) {
+        // Lança um erro claro para o usuário saber que é um problema de segurança
+        throw new Error("Falha de segurança: Token (__REQUESTDIGEST) ausente.");
+    }
+}
 
 /**
- * Função utilitária para fazer requisições VIA PROXY (postMessage).
+ * Gera headers para chamadas REST do SharePoint.
+ */
+function getSharePointHeaders(method) {
+    const headers = {
+        "Accept": "application/json;odata=verbose",
+        "Content-Type": "application/json;odata=verbose",
+    };
+
+    if (method !== 'GET') {
+        headers["X-RequestDigest"] = getSharePointDigest();
+    }
+    return headers;
+}
+
+/**
+ * Função utilitária para chamar a API REST do SharePoint.
  */
 async function sharepointFetch(listTitle, endpoint, method = 'GET', data = null) {
-    const id = apiCounter++;
+    const url = `${API_BASE_URL}('${listTitle}')${endpoint}`;
     
-    // Cria uma promessa que será resolvida quando o SharePoint responder
-    const promise = new Promise((resolve, reject) => {
-        apiResolver[id] = { resolve, reject };
-    });
-    
-    // Envia a requisição para o SharePoint (Pai)
-    window.parent.postMessage({
-        id: id,
-        type: 'SHAREPOINT_API_CALL',
-        payload: {
-            listTitle: listTitle,
-            endpoint: endpoint,
-            method: method,
-            data: data
-        }
-    }, '*'); // O '*' significa que aceita qualquer origem para a mensagem (segurança resolvida no 'message' listener)
+    // OBTEM OS HEADERS (que irá verificar o token para POST)
+    const headers = getSharePointHeaders(method);
 
-    return promise; // Retorna a promessa (espera pela resposta do SharePoint)
-}
+    const config = {
+        method: method,
+        headers: headers,
+        body: data ? JSON.stringify(data) : null,
+        credentials: "include"
+    };
 
-// =========================================================================
-// FUNÇÕES DE UTILIDADE GERAL (O restante do código que não usa API é mantido)
-// =========================================================================
+    const response = await fetch(url, config);
 
-/**
- * Função genérica para trocar de tela
- */
-function navegarPara(telaAtualId, proximaTelaId) {
-    document.querySelectorAll('.screen').forEach(tela => tela.classList.remove('active'));
-    const proximaTela = document.getElementById(proximaTelaId);
-    if (proximaTela) {
-        proximaTela.classList.add('active');
-        if (proximaTelaId === 'tela-historico-saida') carregarHistoricoSaidas();
-        if (proximaTelaId === 'tela-saldo') {
-            document.getElementById('saldoCodigoFabrica').value = '';
-            document.getElementById('saldoDescricao').value = '';
-            limparResultadoSaldo();
-        }
+    if (response.status === 404) return null;
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Erro na resposta do SharePoint:", errorText);
+        throw new Error(`SharePoint API Error: ${response.status} - ${response.statusText}. Verifique Colunas/Permissões.`);
     }
+
+    const json = await response.json();
+    return json.d;
 }
 
-// Rotinas de negócio (buscarProdutoAPI, obterSaldoAPI, etc.)
-// A URL de chamada da API será resolvida pelo Proxy de Mensagens!
+// =========================================================================
+// ROTINAS DE NEGÓCIO (Aqui usamos os Nomes Estáticos Corretos)
+// =========================================================================
+
 async function buscarProdutoAPI(params) {
     let filter = '';
     
@@ -99,12 +95,12 @@ async function buscarProdutoAPI(params) {
     }
 
     try {
-        // Chamada à nova função via Proxy
-        const data = await sharepointFetch('Produtos', `/items${filter}&$top=1`, 'GET'); 
+        const data = await sharepointFetch('Produtos', `/items${filter}&$top=1`, 'GET');
         
         if (data && data.results && data.results.length > 0) {
             const spItem = data.results[0];
             return {
+                // USANDO OS NOMES ESTÁTICOS CORRETOS
                 codigoFabrica: spItem.Title,
                 codigoFornecedor: spItem.CodigoFornecedor,
                 descricaoProduto: spItem.DescricaoProduto,
@@ -122,12 +118,12 @@ async function buscarProdutoAPI(params) {
 
 async function obterSaldoAPI(codigoFabrica) {
     try {
-        const filterEntrada = `?$filter=Title eq '${codigoFabrica}'`;
-        const entradasData = await sharepointFetch('Entradas', `/items${filterEntrada}`, 'GET');
+        // As listas Entradas e Saídas usam Title para o Cód. Fábrica
+        const filter = `?$filter=Title eq '${codigoFabrica}'`;
+        const entradasData = await sharepointFetch('Entradas', `/items${filter}`, 'GET');
         const totalEntradas = entradasData.results.reduce((sum, item) => sum + (item.Quantidade || 0), 0);
 
-        const filterSaida = `?$filter=Title eq '${codigoFabrica}'`;
-        const saidasData = await sharepointFetch('Saidas', `/items${filterSaida}`, 'GET');
+        const saidasData = await sharepointFetch('Saidas', `/items${filter}`, 'GET');
         const totalSaidas = saidasData.results.reduce((sum, item) => sum + (item.Quantidade || 0), 0);
 
         return totalEntradas - totalSaidas;
@@ -142,6 +138,7 @@ async function carregarHistoricoSaidas() {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Carregando histórico...</td></tr>';
 
     try {
+        // Note: Title é o Cód. Fábrica, e Created é a data
         const historico = await sharepointFetch('Saidas', `/items?$select=Title,DescricaoProduto,Quantidade,PlacaCaminhao,Destinatario,Created`, 'GET');
         tbody.innerHTML = ''; 
 
@@ -171,7 +168,7 @@ async function carregarHistoricoSaidas() {
     }
 }
 
-// Funções de Utilitário (Manutenção)
+
 function calcularValorTotal() {
     const quantidade = parseFloat(document.getElementById('entradaQuantidade').value) || 0;
     const valorUnitario = parseFloat(document.getElementById('entradaValorUnitario').value) || 0;
@@ -253,7 +250,7 @@ async function processarFiltroSaldo(campoAlterado) {
 
 
 // =========================================================================
-// ROTINAS DE TELA (Event Listeners)
+// EVENT LISTENERS (Ao carregar a página)
 // =========================================================================
 document.addEventListener('DOMContentLoaded', () => {
     
@@ -287,6 +284,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btn-historico-saida').addEventListener('click', () => { navegarPara('tela-saida', 'tela-historico-saida'); });
     document.getElementById('btn-voltar-historico').addEventListener('click', () => { navegarPara('tela-historico-saida', 'tela-saida'); });
+
+    // ATENÇÃO: A lógica de busca automática de Entrada e Saída (keyup no ENTER) deve ser recolocada aqui
+    document.getElementById('entradaCodigoFornecedor').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            processarBuscaEntrada();
+        }
+    });
+
+    document.getElementById('saidaCodigoFabrica').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            carregarDadosSaida();
+        }
+    });
 
 
     // ---------------------------------------------------------------------

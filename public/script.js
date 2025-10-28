@@ -10,29 +10,23 @@ const FORMS_URL = "https://forms.microsoft.com/r/cYKFvRQbRV";
 // ============================================================
 async function enviarProdutoForms(dadosProduto) {
     try {
-        const formData = new FormData();
-
-        // Campos devem ser iguais aos nomes das perguntas do Forms
-        formData.append("Código de Fábrica", dadosProduto.codigoFabrica);
-        formData.append("Código do Fornecedor", dadosProduto.codigoFornecedor);
-        formData.append("Descrição do Produto", dadosProduto.descricaoProduto);
-        formData.append("Nome do Fornecedor", dadosProduto.nomeFornecedor);
-        formData.append("Unidade de Medida", dadosProduto.unidadeMedida);
-
-        const response = await fetch(FORMS_URL, {
+        const response = await fetch("/enviarForms", {
             method: "POST",
-            mode: "no-cors", // Forms não retorna resposta (modo silencioso)
-            body: formData
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(dadosProduto)
         });
+
+        if (!response.ok) throw new Error("Erro ao enviar dados");
 
         alert("✅ Produto enviado com sucesso! Aguarde alguns segundos e verifique a lista no SharePoint.");
         document.getElementById("form-cadastro").reset();
         navegarPara("tela-cadastro", "tela-principal");
     } catch (error) {
-        alert(`❌ Falha ao enviar o produto: ${error.message}`);
-        console.error("Erro ao enviar para o Forms:", error);
+        alert(`❌ Falha ao enviar: ${error.message}`);
+        console.error("Erro ao enviar produto:", error);
     }
 }
+
 
 // ============================================================
 //  NAVEGAÇÃO ENTRE TELAS
@@ -72,3 +66,4 @@ document.addEventListener("DOMContentLoaded", () => {
         await enviarProdutoForms(dadosProduto);
     });
 });
+

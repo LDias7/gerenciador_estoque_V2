@@ -9,6 +9,8 @@ const LISTA_ENTRADA_API = "EntradaAPI";
 // ===========================================================
 async function salvarNaEntradaAPI(dados) {
   try {
+    console.log("🔹 Enviando dados para EntradaAPI:", dados);
+
     const siteUrl = `${SHAREPOINT_SITE}`;
     const listUrl = `${siteUrl}/_api/web/lists/getbytitle('${LISTA_ENTRADA_API}')/items`;
 
@@ -42,23 +44,23 @@ async function salvarNaEntradaAPI(dados) {
       }),
     });
 
-    if (!response.ok) {
-      const erro = await response.text();
-      throw new Error(erro);
-    }
+    const result = await response.text();
+    console.log("📦 Resposta SharePoint:", result);
+
+    if (!response.ok) throw new Error("Falha na requisição: " + result);
 
     alert("✅ Produto enviado com sucesso para o Power Automate!");
     document.getElementById("form-cadastro").reset();
     navegarPara("tela-cadastro", "tela-principal");
 
   } catch (error) {
-    console.error("Erro ao enviar para EntradaAPI:", error);
+    console.error("❌ Erro ao enviar para EntradaAPI:", error);
     alert("❌ Falha ao enviar o produto: " + error.message);
   }
 }
 
 // ===========================================================
-// FUNÇÕES DE NAVEGAÇÃO
+// NAVEGAÇÃO ENTRE TELAS
 // ===========================================================
 function navegarPara(atual, proxima) {
   document.querySelectorAll(".screen").forEach(tela => tela.classList.remove("active"));
@@ -79,9 +81,8 @@ function calcularValorTotal() {
 // EVENTOS GERAIS
 // ===========================================================
 document.addEventListener("DOMContentLoaded", () => {
-
   // ----------------------------------------------------------
-  // NAVEGAÇÃO ENTRE TELAS
+  // NAVEGAÇÃO
   // ----------------------------------------------------------
   document.getElementById("btn-cadastro").addEventListener("click", () => navegarPara("tela-principal", "tela-cadastro"));
   document.getElementById("btn-entrada").addEventListener("click", () => navegarPara("tela-principal", "tela-entrada"));
@@ -96,7 +97,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-historico-saida").addEventListener("click", () => navegarPara("tela-saida", "tela-historico-saida"));
 
   // ----------------------------------------------------------
-  // CADASTRO DE PRODUTO → ENVIAR PARA EntradaAPI
+  // FORMULÁRIO DE CADASTRO
   // ----------------------------------------------------------
   document.getElementById("form-cadastro").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -109,7 +110,6 @@ document.addEventListener("DOMContentLoaded", () => {
       unidadeMedida: document.getElementById("unidadeMedida").value.trim(),
     };
 
-    // Campos obrigatórios
     if (!dados.codigoFabrica || !dados.codigoFornecedor || !dados.descricaoProduto || !dados.nomeFornecedor || !dados.unidadeMedida) {
       alert("⚠️ Preencha todos os campos antes de salvar!");
       return;
@@ -119,21 +119,27 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ----------------------------------------------------------
-  // FUNÇÕES DE ENTRADA
+  // TELA DE ENTRADA
   // ----------------------------------------------------------
   document.getElementById("entradaQuantidade").addEventListener("input", calcularValorTotal);
   document.getElementById("entradaValorUnitario").addEventListener("input", calcularValorTotal);
-
-  // ----------------------------------------------------------
-  // PLACEHOLDERS DE SAÍDA / SALDO (ainda não integrados)
-  // ----------------------------------------------------------
   document.getElementById("form-entrada").addEventListener("submit", (e) => {
     e.preventDefault();
-    alert("📦 Registro de entrada será implementado após integração de produtos.");
+    alert("📦 Registro de entrada será ativado após integração de produtos.");
   });
 
+  // ----------------------------------------------------------
+  // TELA DE SAÍDA
+  // ----------------------------------------------------------
   document.getElementById("form-saida").addEventListener("submit", (e) => {
     e.preventDefault();
     alert("🚚 Registro de saída será integrado em breve.");
+  });
+
+  // ----------------------------------------------------------
+  // TELA DE SALDO
+  // ----------------------------------------------------------
+  document.getElementById("saldoCodigoFabrica").addEventListener("input", () => {
+    document.getElementById("saldoDisplayDescricao").textContent = "Consulta simulada";
   });
 });

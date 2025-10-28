@@ -1,182 +1,103 @@
-// ===========================================================
-// CONFIGURAÇÃO GERAL
-// ===========================================================
-const SHAREPOINT_SITE = "https://borexpress.sharepoint.com/sites/EstoqueJC";
-const LISTA_ENTRADA_API = "EntradaAPI";
+// =====================================================================
+// CONFIGURAÇÃO DO MICROSOFT FORMS E SHAREPOINT (SEM PREMIUM)
+// =====================================================================
 
-// ===========================================================
-// FUNÇÃO PRINCIPAL: ENVIA PRODUTO PARA ENTRADAAPI
-// ===========================================================
-async function salvarNaEntradaAPI(dados) {
+// URL pública do seu Microsoft Forms
+const FORM_URL =
+  "https://forms.microsoft.com/Pages/ResponsePage.aspx?id=V2vtxCDuGECFbJBsQgFoSMHt4qeT3V1Djd4VrtFsitxURTRUMlpWNDQ2VTJJWUM0T05BTkVGRUdDRy4u";
+
+// =====================================================================
+// FUNÇÕES PRINCIPAIS
+// =====================================================================
+
+function navegarPara(telaAtualId, proximaTelaId) {
+  document.querySelectorAll(".screen").forEach((tela) => tela.classList.remove("active"));
+  const proximaTela = document.getElementById(proximaTelaId);
+  if (proximaTela) proximaTela.classList.add("active");
+}
+
+// =====================================================================
+// FUNÇÃO DE ENVIO PARA O MICROSOFT FORMS
+// =====================================================================
+
+async function enviarParaForms(dados) {
   try {
-    const digestResponse = await fetch(`${SHAREPOINT_SITE}/_api/contextinfo`, {
+    // O Forms aceita dados via query string (modo GET simulado)
+    const formData = new URLSearchParams();
+    formData.append("entry.1", dados.codigoFabrica);
+    formData.append("entry.2", dados.codigoFornecedor);
+    formData.append("entry.3", dados.descricaoProduto);
+    formData.append("entry.4", dados.nomeFornecedor);
+    formData.append("entry.5", dados.unidadeMedida);
+
+    // O envio é feito com modo no-cors (para evitar bloqueios)
+    await fetch(FORM_URL, {
       method: "POST",
-      headers: { "Accept": "application/json;odata=verbose" },
-      credentials: "include",
+      body: formData,
+      mode: "no-cors",
     });
 
-    if (!digestResponse.ok) throw new Error("Falha ao gerar token de segurança.");
-
-    const digestData = await digestResponse.json();
-    const digestValue = digestData.d.GetContextWebInformation.FormDigestValue;
-
-    const response = await fetch(
-      `${SHAREPOINT_SITE}/_api/web/lists/getbytitle('${LISTA_ENTRADA_API}')/items`,
-      {
-        method: "POST",
-        headers: {
-          "Accept": "application/json;odata=verbose",
-          "Content-Type": "application/json;odata=verbose",
-          "X-RequestDigest": digestValue,
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          "__metadata": { "type": "SP.Data.EntradaAPIListItem" },
-          "Title": dados.codigoFabrica,
-          "CodigoFornecedor": dados.codigoFornecedor,
-          "DescricaoProduto": dados.descricaoProduto,
-          "NomeFornecedor": dados.nomeFornecedor,
-          "UnidadeMedida": dados.unidadeMedida,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const erro = await response.text();
-      throw new Error(erro);
-    }
-
-    alert("✅ Produto enviado com sucesso para o Power Automate!");
+    alert("✅ Produto enviado com sucesso!");
     document.getElementById("form-cadastro").reset();
     navegarPara("tela-cadastro", "tela-principal");
-
-  } catch (error) {
-    console.error("❌ Erro ao enviar produto:", error);
-    alert("❌ Falha ao enviar o produto: " + error.message);
+  } catch (err) {
+    alert("❌ Falha ao enviar o produto: " + err.message);
   }
 }
 
-// ===========================================================
-// FUNÇÃO DE NAVEGAÇÃO ENTRE TELAS
-// ===========================================================
-function navegarPara(telaAtual, proximaTela) {
-  document.querySelectorAll(".screen").forEach(tela => tela.classList.remove("active"));
-  const proxima = document.getElementById(proximaTela);
-  if (proxima) {
-    proxima.classList.add("active");
-  } else {
-    console.warn(`⚠️ Tela "${proximaTela}" não encontrada.`);
-  }
-}
+// =====================================================================
+// EVENTOS DE INTERFACE
+// =====================================================================
 
-// ===========================================================
-// UTILITÁRIAS
-// ===========================================================
-function calcularValorTotal() {
-  const qtd = parseFloat(document.getElementById("entradaQuantidade").value) || 0;
-  const unit = parseFloat(document.getElementById("entradaValorUnitario").value) || 0;
-  document.getElementById("entradaValorTotal").value = (qtd * unit).toFixed(2);
-}
-
-// ===========================================================
-// EVENTOS GERAIS
-// ===========================================================
 document.addEventListener("DOMContentLoaded", () => {
-  // Garante que a tela principal fique visível no início
-  document.querySelectorAll(".screen").forEach(t => t.classList.remove("active"));
-  const principal = document.getElementById("tela-principal");
-  if (principal) principal.classList.add("active");
-
-  // ----------------------------------------------------------
-  // NAVEGAÇÃO ENTRE TELAS
-  // ----------------------------------------------------------
-  const mapa = {
-    "btn-cadastro": "tela-cadastro",
-    "btn-entrada": "tela-entrada",
-    "btn-saida": "tela-saida",
-    "btn-saldo": "tela-saldo",
-    "btn-voltar-cadastro": "tela-principal",
-    "btn-voltar-entrada": "tela-principal",
-    "btn-voltar-saida": "tela-principal",
-    "btn-voltar-saldo": "tela-principal",
-    "btn-voltar-historico": "tela-saida",
-    "btn-historico-saida": "tela-historico-saida",
-  };
-
-  Object.entries(mapa).forEach(([botao, destino]) => {
-    const el = document.getElementById(botao);
-    if (el) el.addEventListener("click", () => navegarPara(null, destino));
+  // BOTÕES DE NAVEGAÇÃO
+  document.getElementById("btn-cadastro").addEventListener("click", () => {
+    navegarPara("tela-principal", "tela-cadastro");
+  });
+  document.getElementById("btn-entrada").addEventListener("click", () => {
+    navegarPara("tela-principal", "tela-entrada");
+  });
+  document.getElementById("btn-saida").addEventListener("click", () => {
+    navegarPara("tela-principal", "tela-saida");
+  });
+  document.getElementById("btn-saldo").addEventListener("click", () => {
+    navegarPara("tela-principal", "tela-saldo");
   });
 
-  // ----------------------------------------------------------
-  // CADASTRO DE PRODUTO
-  // ----------------------------------------------------------
-  const formCadastro = document.getElementById("form-cadastro");
-  if (formCadastro) {
-    formCadastro.addEventListener("submit", async e => {
-      e.preventDefault();
+  document.getElementById("btn-voltar-cadastro").addEventListener("click", () => {
+    navegarPara("tela-cadastro", "tela-principal");
+  });
+  document.getElementById("btn-voltar-entrada").addEventListener("click", () => {
+    navegarPara("tela-entrada", "tela-principal");
+  });
+  document.getElementById("btn-voltar-saida").addEventListener("click", () => {
+    navegarPara("tela-saida", "tela-principal");
+  });
+  document.getElementById("btn-voltar-saldo").addEventListener("click", () => {
+    navegarPara("tela-saldo", "tela-principal");
+  });
 
-      const dados = {
-        codigoFabrica: document.getElementById("codigoFabrica").value.trim().toUpperCase(),
-        codigoFornecedor: document.getElementById("codigoFornecedor").value.trim().toUpperCase(),
-        descricaoProduto: document.getElementById("descricaoProduto").value.trim(),
-        nomeFornecedor: document.getElementById("nomeFornecedor").value.trim(),
-        unidadeMedida: document.getElementById("unidadeMedida").value.trim(),
-      };
+  // =====================================================================
+  // FORMULÁRIO DE CADASTRO
+  // =====================================================================
+  document.getElementById("form-cadastro").addEventListener("submit", async (e) => {
+    e.preventDefault();
 
-      if (
-        !dados.codigoFabrica ||
-        !dados.codigoFornecedor ||
-        !dados.descricaoProduto ||
-        !dados.nomeFornecedor ||
-        !dados.unidadeMedida
-      ) {
-        alert("⚠️ Preencha todos os campos antes de salvar!");
-        return;
-      }
+    const dados = {
+      codigoFabrica: document.getElementById("codigoFabrica").value.trim(),
+      codigoFornecedor: document.getElementById("codigoFornecedor").value.trim(),
+      descricaoProduto: document.getElementById("descricaoProduto").value.trim(),
+      nomeFornecedor: document.getElementById("nomeFornecedor").value.trim(),
+      unidadeMedida: document.getElementById("unidadeMedida").value.trim(),
+    };
 
-      await salvarNaEntradaAPI(dados);
-    });
-  }
+    // Validação básica
+    if (!dados.codigoFabrica || !dados.codigoFornecedor || !dados.descricaoProduto) {
+      alert("⚠️ Preencha todos os campos obrigatórios!");
+      return;
+    }
 
-  // ----------------------------------------------------------
-  // ENTRADA
-  // ----------------------------------------------------------
-  const formEntrada = document.getElementById("form-entrada");
-  if (formEntrada)
-    formEntrada.addEventListener("submit", e => {
-      e.preventDefault();
-      alert("📦 Registro de entrada será ativado após integração de estoque.");
-    });
-
-  const entradaQuantidade = document.getElementById("entradaQuantidade");
-  const entradaValorUnitario = document.getElementById("entradaValorUnitario");
-  if (entradaQuantidade) entradaQuantidade.addEventListener("input", calcularValorTotal);
-  if (entradaValorUnitario) entradaValorUnitario.addEventListener("input", calcularValorTotal);
-
-  // ----------------------------------------------------------
-  // SAÍDA
-  // ----------------------------------------------------------
-  const formSaida = document.getElementById("form-saida");
-  if (formSaida)
-    formSaida.addEventListener("submit", e => {
-      e.preventDefault();
-      alert("🚚 Registro de saída será ativado após integração completa.");
-    });
-
-  // ----------------------------------------------------------
-  // SALDO
-  // ----------------------------------------------------------
-  const saldoCodigo = document.getElementById("saldoCodigoFabrica");
-  const saldoDescricao = document.getElementById("saldoDescricao");
-  if (saldoCodigo)
-    saldoCodigo.addEventListener("input", () => {
-      document.getElementById("saldoDisplayDescricao").textContent = "Consulta em andamento...";
-    });
-  if (saldoDescricao)
-    saldoDescricao.addEventListener("input", () => {
-      document.getElementById("saldoDisplayDescricao").textContent = "Consulta em andamento...";
-    });
-
-  console.log("✅ Sistema de estoque inicializado.");
+    // Envia para o Microsoft Forms
+    await enviarParaForms(dados);
+  });
 });
